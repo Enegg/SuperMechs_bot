@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import typing as t
 from itertools import zip_longest
+from operator import sub
 
 from disnake import ButtonStyle, CommandInteraction, Embed, MessageInteraction
 from disnake.ext import commands
@@ -426,36 +427,38 @@ def cmp_num(x: float, y: float, lower_is_better: bool = False) -> tuple_of_tuple
 
 value_and_diff = tuple[int | float | None, float]
 
+
+class ValueRuleSet(t.NamedTuple):
+    comparator: t.Callable[[int, int], tuple[int | float, bool | None]]
+    format_value: t.Callable[[int], str]
+    format_diff: t.Callable[[float], str] = lambda d: f"{d:+g}"
+
+
+class RangeRuleSet(t.NamedTuple):
+    comparator: t.Callable[[list[int], list[int]], tuple[int | float, bool | None]]
+    format_value: t.Callable[[list[int]], str]
+    format_diff: t.Callable[[float], str] = lambda d: f"{d:+g}"
+
+
+rulesets: dict[str, ValueRuleSet | RangeRuleSet] = {
+    "range": RangeRuleSet(
+        lambda a, b: (abs(sub(*a) - sub(*b)), None), lambda v: "-".join(map(str, v))
+    ),
+}
+
 # TODO: generic comparator for N items, with rulesets
-def generic_comparator(
-    *stats: AnyStats,
-) -> t.Iterator[tuple[str, Stat, tuple[value_and_diff, ...]]]:
+# add intermediary iterator which will create extra fields like the damage spread %
 
-    if not stats:
-        return
 
-    undesired = {"weight", "backfire", "heaCost", "eneCost"}
-    special_cases = {"range"}
-
+def ruleset_comparator(stats_a: AnyStats, stats_b: AnyStats):
     for stat_name, stat in STATS.items():
-        stat_values: list[int | None] | list[
-            list[int] | None
-        ] = []  # [stat.get(stat_name) for stat in stats]
+        stat_a: int | list[int] | None = stats_a.get(stat_name)
+        stat_b: int | list[int] | None = stats_b.get(stat_name)
 
-        if all(stat is None for stat in stat_values):
+        if stat_a is stat_b is None:
             continue
 
-        if stat_name in special_cases:
-            yield stat_name, stat, tuple(
-                tuple(stat) if isinstance(stat, list) else (None, 0) for stat in stat_values
-            )
-            continue
-
-        if any(isinstance(stat, int) for stat in stat_values):
-            pass
-
-        if any(isinstance(stat, list) for stat in stat_values):
-            pass
+        rulesets.get(stat_name)
 
 
 def comparator(
