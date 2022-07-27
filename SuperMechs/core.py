@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import typing as t
+from collections import defaultdict
+from difflib import SequenceMatcher
+from heapq import nlargest
 from json import load
 
 from typing_extensions import Self
@@ -207,26 +210,47 @@ class ArenaBuffs:
 MAX_BUFFS = ArenaBuffs.maxed()
 
 
+def abbreviate_name(name: str, /) -> str | None:
+    """Create an abbreviation from a single name. The abbreviation is simply
+    made of all uppercase letters that occur in the name, unless
+    there are no lowercase letters or it tests True for .istitle."""
+    if name.isupper() or (" " not in name and name.istitle()):
+        return None
+
+    # Hybrid Heat Cannon => hhc, HeronMark => hm
+    return "".join(a.lower() for a in name if a.isupper())
+
+
+def abbreviate_names_2(names: t.Iterable[str], /) -> dict[str, set[str]]:
+    """Returns dict of abbreviations:
+    Energy Free Armor => EFA"""
+    abbrevs: defaultdict[str, set[str]] = defaultdict(set)
+
+    for name in names:
+        if (abbrev := abbreviate_name(name)) is not None:
+            abbrevs[abbrev].add(name)
+
+    return abbrevs
+
+
 def abbreviate_names(names: t.Iterable[str], /) -> dict[str, set[str]]:
-    """Returns dict of abbrevs:
+    """Returns dict of abbreviations:
     Energy Free Armor => EFA"""
     abbrevs: dict[str, set[str]] = {}
 
     for name in names:
-        if len(name) < 8:
+        # skip items like EMP or Flaminator, there's no short name for that
+        if (abb := abbreviate_name(name)) is None:
             continue
 
-        is_single_word = " " not in name
+        abbrev = {abb}
 
-        if (IsNotPascal := not name.isupper() and name[1:].islower()) and is_single_word:
-            continue
+        if " " in name:
+            # merge multi-word names into one, people mistake that often enough
+            abbrev.add(name.replace(" ", "").lower())
 
-        abbrev = {"".join(a for a in name if a.isupper()).lower()}
-
-        if not is_single_word:
-            abbrev.add(name.replace(" ", "").lower())  # Fire Fly => firefly
-
-        if not IsNotPascal and is_single_word:  # takes care of PascalCase names
+        elif not name.istitle():
+            # HeronMark => heron, mark
             last = 0
             for i, a in enumerate(name):
                 if a.isupper():
@@ -237,7 +261,62 @@ def abbreviate_names(names: t.Iterable[str], /) -> dict[str, set[str]]:
 
             abbrev.add(name[last:].lower())
 
+        # one abbreviation can match multiple items
         for abb in abbrev:
             abbrevs.setdefault(abb, {name}).add(name)
 
     return abbrevs
+
+
+VT = t.TypeVar("VT")
+
+
+def get_matching_items(
+    mapping: t.Mapping[str, VT], name: str, abbrevs: dict[str, set[str]], /, *, limit: int = 25
+) -> list[VT]:
+    """Return a list of items which closely match the name and/or abbreviation."""
+
+    name = name.lower()
+
+    if (item_names := abbrevs.get(name)) is not None:
+        # it is quite implausible for the number of abbreviations to surpass the default 25.
+        # However, it is possible in case a low limit is passed and/or when dealing with custom items,
+        # in which case it is ambiguous what to do with the abbreviations,
+        # hence we raise ValueError instead of silently slicing.
+        if len(item_names) > limit:
+            raise ValueError("Found more abbreviations than the limit allows")
+
+        items = [mapping[name] for name in item_names]
+
+    else:
+        items: list[VT] = []
+
+    # this part is similar to difflib.get_close_matches implementation,
+    # but since we want to support matching partial names like "Can" in "Hybrid Heat Cannon",
+    # we create own algorithm
+    cutoff = 0.6
+    matched: list[tuple[float, VT]] = []
+    matcher = SequenceMatcher(lambda x: x == " ")
+    matcher.set_seq2(name)
+
+    def predicate() -> bool:
+        return (
+            matcher.real_quick_ratio() >= cutoff
+            and matcher.quick_ratio() >= cutoff
+            and matcher.ratio() >= cutoff
+        )
+
+    for item_name in mapping:
+        matcher.set_seq1(item_name.lower())
+
+        if predicate():
+            matched.append((matcher.ratio(), mapping[item_name]))
+
+        elif " " in item_name:
+            parts = item_name.split()
+
+    if matched:
+        # abbreviations first, then matches sorted by similarity
+        items.extend(item for _, item in nlargest(limit - len(items), matched, key=lambda i: i[0]))
+
+    return items
