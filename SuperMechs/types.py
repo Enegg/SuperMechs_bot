@@ -118,6 +118,35 @@ AnyAttachment = Attachment | Attachments | None
 AttachmentType = t.TypeVar("AttachmentType", bound=AnyAttachment)
 
 
+class ItemDictBasev2(t.TypedDict):
+    name: str
+    type: AnyType
+    element: AnyElement
+    transform_range: str
+    common: NotRequired[AnyStats]
+    max_common: NotRequired[AnyStats]
+    rare: NotRequired[AnyStats]
+    max_rare: NotRequired[AnyStats]
+    epic: NotRequired[AnyStats]
+    max_epic: NotRequired[AnyStats]
+    legendary: NotRequired[AnyStats]
+    max_legendary: NotRequired[AnyStats]
+    mythical: NotRequired[AnyStats]
+    max_mythical: NotRequired[AnyStats]
+    divine: NotRequired[AnyStats]
+    width: NotRequired[int]
+    height: NotRequired[int]
+
+
+class ItemDictAttachmentv2(ItemDictBasev2):
+    attachment: Attachment
+
+
+class ItemDictAttachmentsv2(ItemDictBasev2):
+    attachment: Attachments
+
+
+ItemDictv2 = ItemDictBasev2 | ItemDictAttachmentv2 | ItemDictAttachmentsv2
 
 
 class ItemDictBase(t.TypedDict):
